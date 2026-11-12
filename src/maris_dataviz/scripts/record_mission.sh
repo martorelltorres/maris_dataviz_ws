@@ -47,6 +47,8 @@ if ! DISPLAY=$DISP xset q >/dev/null 2>&1; then
   PIDS+=($!)
   sleep 2
 fi
+# Disable screen blanking (the default X screensaver blanks after 10 min).
+DISPLAY=$DISP xset s off s noblank -dpms 2>/dev/null || true
 
 # Full-screen RViz configuration for the video: no side panel, no labels.
 CFG="$WORK/record.rviz"

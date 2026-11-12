@@ -12,6 +12,14 @@ visualize them in RViz in 3D:
   the seafloor as a textured mosaic, plus a scrolling waterfall.
 - **Multibeam**: incremental hill-shaded bathymetry grid, live swath and beam fan.
 
+**Optical profile** — camera photomosaic and multibeam bathymetry (Andratx, lawnmower survey):
+
+![Optical profile](docs/images/optical.jpg)
+
+**SSS profile** — side-scan sonar mosaic and waterfall (Cabrera):
+
+![SSS profile](docs/images/sss.jpg)
+
 The RViz layout adapts to the data in the mission (`sss`, `optical` or `full`),
 and the part of the mission before data collection starts is fast-forwarded.
 
