@@ -1,0 +1,99 @@
+<launch>
+  <!--
+    Replay an AUV mission folder (raw bags) and visualize it in RViz:
+    navigation, mission plan, seafloor-projected camera images, side-scan
+    sonar mosaic and multibeam bathymetry.
+
+    Examples:
+      roslaunch maris_dataviz replay_mission.launch dataset:=sss
+      roslaunch maris_dataviz replay_mission.launch dataset:=optical
+      roslaunch maris_dataviz replay_mission.launch mission_dir:=/path/to/mission_folder
+  -->
+  <!-- Predefined datasets (relative to the workspace bagfiles/ folder) -->
+  <arg name="dataset" default=""
+       doc="Shortcut instead of mission_dir: sss (Cabrera side-scan survey) or optical (Andratx camera + multibeam lawnmower)"/>
+  <arg name="bagfiles" default="$(find maris_dataviz)/../../bagfiles"/>
+  <arg name="mission_dir" doc="Folder containing the sparus2_*.bag files of one mission"
+       default="$(eval {'sss': bagfiles + '/cabrera/2025_10_28/10_56_48',
+                        'optical': bagfiles + '/andratx/2026_07_02/13_52_22'}.get(dataset, ''))"/>
+  <arg name="rate" default="1.0" doc="Playback rate"/>
+  <arg name="start" default="0.0" doc="Seconds to skip from the start of the bags"/>
+  <arg name="duration" default="0.0" doc="Seconds to play (0 = all)"/>
+  <arg name="loop" default="false"/>
+  <arg name="skip_to_data" default="true"
+       doc="Play the part before the first sensor message fast (navigation only)"/>
+  <arg name="wait_motion" default="true"
+       doc="Keep fast-forwarding until the vehicle also starts moving"/>
+  <arg name="ff_rate" default="20" doc="Playback rate while fast-forwarding to the data"/>
+  <arg name="pause" default="false" doc="Start paused (resume with the player's pause_playback service)"/>
+
+  <arg name="camera" default="true" doc="Project stereo camera (port) images on the seafloor"/>
+  <arg name="sss" default="true" doc="Project side-scan sonar"/>
+  <arg name="multibeam" default="true" doc="Build multibeam bathymetry"/>
+  <arg name="rviz" default="true"/>
+  <arg name="profile" default="auto"
+       doc="RViz layout: auto (detected from the bags), sss, optical (camera + multibeam) or full"/>
+  <arg name="rviz_config" default="" doc="Explicit RViz config (overrides profile)"/>
+  <arg name="camera_side" default="port" doc="Stereo camera used for projection: port or starboard"/>
+  <arg name="vehicle_mesh" default="file://$(find maris_dataviz)/../orat_description/meshes/orat.dae"
+       doc="Vehicle mesh URI (empty string draws an arrow)"/>
+
+  <arg name="mission_line_width" default="0.25" doc="Width (m) of the mission plan legs"/>
+
+  <param name="use_sim_time" value="true"/>
+  <env name="DISABLE_ROS1_EOL_WARNINGS" value="1"/>
+
+  <!-- Bag playback -->
+  <node pkg="maris_dataviz" type="play_mission.py" name="player" output="screen"
+        args="$(arg mission_dir) --rate $(arg rate) --start $(arg start) --duration $(arg duration)
+              --loop $(arg loop) --pause $(arg pause)
+              --skip-to-data $(arg skip_to_data) --ff-rate $(arg ff_rate) --wait-motion $(arg wait_motion)
+              --camera $(arg camera) --sss $(arg sss) --multibeam $(arg multibeam)"/>
+
+  <group ns="maris_dataviz">
+    <!-- TF, vehicle model, trail and altitude -->
+    <node pkg="maris_dataviz" type="nav_relay.py" name="nav" output="screen">
+      <param name="mission_dir" value="$(arg mission_dir)"/>
+      <param name="vehicle_mesh" value="$(arg vehicle_mesh)"/>
+      <remap from="odometry" to="/sparus2/navigator/odometry"/>
+      <remap from="navigation" to="/sparus2/navigator/navigation"/>
+    </node>
+
+    <!-- Mission plan -->
+    <node pkg="maris_dataviz" type="mission_viz.py" name="mission" output="screen">
+      <param name="mission_dir" value="$(arg mission_dir)"/>
+      <param name="line_width" value="$(arg mission_line_width)"/>
+      <remap from="mission" to="/sparus2/captain/mission"/>
+    </node>
+
+    <!-- Camera images projected on the seafloor -->
+    <node if="$(arg camera)" pkg="maris_dataviz" type="camera_projector.py" name="camera" output="screen">
+      <param name="decode_reduction" value="4"/>
+      <param name="texture_width" value="400"/>
+      <param name="keyframe_advance" value="0.45"/>
+      <remap from="altitude" to="nav/altitude"/>
+      <remap from="image" to="/sparus2/flir_spinnaker_stereo_camera/$(arg camera_side)/image_raw/compressed"/>
+      <remap from="camera_info" to="/sparus2/flir_spinnaker_stereo_camera/$(arg camera_side)/camera_info"/>
+    </node>
+
+    <!-- Side-scan sonar projected on the seafloor -->
+    <node if="$(arg sss)" pkg="maris_dataviz" type="sss_projector.py" name="sss" output="screen">
+      <param name="ground_bins" value="512"/>
+      <param name="pings_per_tile" value="40"/>
+      <remap from="altitude" to="nav/altitude"/>
+      <remap from="sss/port" to="/sparus2/marinesonic_scoutmkii_sidescan/raw_data/port"/>
+      <remap from="sss/starboard" to="/sparus2/marinesonic_scoutmkii_sidescan/raw_data/starboard"/>
+      <remap from="sss/port/sss_info" to="/sparus2/marinesonic_scoutmkii_sidescan/raw_data/port/sss_info"/>
+      <remap from="sss/starboard/sss_info" to="/sparus2/marinesonic_scoutmkii_sidescan/raw_data/starboard/sss_info"/>
+    </node>
+
+    <!-- Multibeam bathymetry -->
+    <node if="$(arg multibeam)" pkg="maris_dataviz" type="multibeam_mapper.py" name="multibeam" output="screen">
+      <param name="cell_size" value="0.2"/>
+      <remap from="multibeam" to="/sparus2/norbit_wbms_multibeam/multibeam_scan"/>
+    </node>
+  </group>
+
+  <node if="$(arg rviz)" pkg="maris_dataviz" type="rviz_profile.py" name="rviz" output="screen"
+        args="$(arg mission_dir) $(arg profile) '$(arg rviz_config)'"/>
+</launch>

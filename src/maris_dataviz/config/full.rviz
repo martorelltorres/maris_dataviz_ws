@@ -1,0 +1,310 @@
+Panels:
+- Class: rviz/Displays
+  Help Height: 0
+  Name: Displays
+  Property Tree Widget:
+    Expanded: null
+    Splitter Ratio: 0.6000000238418579
+  Tree Height: 140
+- Class: rviz/Time
+  Name: Time
+  SyncMode: 0
+  SyncSource: SSS waterfall
+Preferences:
+  PromptSaveOnExit: true
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ''
+  Displays:
+  - Alpha: 0.30000001192092896
+    Cell Size: 10
+    Class: rviz/Grid
+    Color: 120; 160; 200
+    Enabled: false
+    Line Style:
+      Line Width: 0.029999999329447746
+      Value: Lines
+    Name: Grid (10 m)
+    Normal Cell Count: 0
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Plane: XY
+    Plane Cell Count: 30
+    Reference Frame: world
+    Value: false
+  - Class: rviz/TF
+    Enabled: false
+    Filter (blacklist): ''
+    Filter (whitelist): ''
+    Frame Timeout: 15
+    Frames:
+      All Enabled: true
+    Marker Alpha: 1
+    Marker Scale: 0.5
+    Name: TF
+    Show Arrows: false
+    Show Axes: true
+    Show Names: false
+    Tree: {}
+    Update Interval: 0
+    Value: false
+  - Class: rviz/Group
+    Displays:
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/nav/vehicle
+      Name: Vehicle
+      Namespaces:
+        altitude: true
+        telemetry: true
+        vehicle: true
+      Queue Size: 10
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 255; 220; 40
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.07999999821186066
+      Name: Trail
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /maris_dataviz/nav/trail
+      Unreliable: false
+      Value: true
+    Enabled: true
+    Name: Navigation
+  - Class: rviz/Group
+    Displays:
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/mission/markers
+      Name: Mission plan
+      Namespaces:
+        direction: true
+        drop_lines: true
+        labels: true
+        legs: true
+        legs_surface: true
+        sea_surface: true
+        tolerance: true
+        waypoints: true
+      Queue Size: 100
+      Value: true
+    - Alpha: 0.800000011920929
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 255; 255; 255
+      Enabled: false
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Captain trajectory
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /sparus2/captain/trajectory_path
+      Unreliable: false
+      Value: false
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /sparus2/pilot/waypoint_marker
+      Name: Current goal
+      Namespaces:
+        /sparus2/pilot: true
+      Queue Size: 10
+      Value: true
+    Enabled: true
+    Name: Mission
+  - Class: rviz/Group
+    Displays:
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/camera/mosaic
+      Name: Photo mosaic
+      Namespaces: {}
+      Queue Size: 200
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/camera/footprint
+      Name: Camera footprint
+      Namespaces: {}
+      Queue Size: 10
+      Value: true
+    Enabled: true
+    Name: Camera
+  - Class: rviz/Group
+    Displays:
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/sss/mosaic
+      Name: SSS mosaic
+      Namespaces:
+        sss_mosaic: true
+      Queue Size: 200
+      Value: true
+    Enabled: true
+    Name: Side-scan sonar
+  - Class: rviz/Group
+    Displays:
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/multibeam/bathymetry
+      Name: Bathymetry
+      Namespaces: {}
+      Queue Size: 200
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /maris_dataviz/multibeam/swath_fan
+      Name: Swath fan
+      Namespaces: {}
+      Queue Size: 5
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0.5
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 160; 255
+      Name: Live swath
+      Position Transformer: XYZ
+      Queue Size: 50
+      Selectable: false
+      Size (Pixels): 3
+      Size (m): 0.05999999865889549
+      Style: Flat Squares
+      Topic: /sparus2/norbit_wbms_multibeam/multibeam_scan
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    Enabled: true
+    Name: Multibeam
+  - Class: rviz/Image
+    Enabled: false
+    Image Topic: /maris_dataviz/camera/image_enhanced
+    Max Value: 1
+    Median window: 5
+    Min Value: 0
+    Name: Camera image
+    Normalize Range: false
+    Queue Size: 2
+    Transport Hint: raw
+    Unreliable: false
+    Value: false
+  - Class: rviz/Image
+    Enabled: true
+    Image Topic: /maris_dataviz/sss/waterfall
+    Max Value: 1
+    Median window: 5
+    Min Value: 0
+    Name: SSS waterfall
+    Normalize Range: false
+    Queue Size: 2
+    Transport Hint: raw
+    Unreliable: false
+    Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 8; 22; 38
+    Default Light: true
+    Fixed Frame: world
+    Frame Rate: 30
+  Name: root
+  Tools:
+  - Class: rviz/Interact
+    Hide Inactive Objects: true
+  - Class: rviz/MoveCamera
+  - Class: rviz/Select
+  - Class: rviz/FocusCamera
+  - Class: rviz/Measure
+  Value: true
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 40
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Field of View: 0.7850000262260437
+      Focal Point:
+        X: 26.741254806518555
+        Y: 25.411888122558594
+        Z: -4.990490436553955
+      Focal Shape Fixed Size: false
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.75
+      Target Frame: sparus2/base_link
+      Yaw: 3.6
+    Saved:
+    - Angle: 0
+      Class: rviz/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
+      Name: Top down
+      Near Clip Distance: 0.009999999776482582
+      Scale: 10
+      Target Frame: sparus2/base_link
+      X: 0
+      Y: 0
+Window Geometry:
+  Camera image:
+    collapsed: false
+  Displays:
+    collapsed: false
+  Height: 1016
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd00000003000000000000012c000003b9fc0200000001fb000000100044006900730070006c0061007900730100000011000003b90000001700ffffff0000000100000230000003b9fc0200000002fb0000001800430061006d00650072006100200069006d0061006700650100000011000001ba0000001700fffffffb0000001a00530053005300200077006100740065007200660061006c006c01000001d1000001f90000001700ffffff000000030000073800000028fc0100000001fb0000000800540069006d00650100000000000007380000003e00ffffff000003d0000003b900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  SSS waterfall:
+    collapsed: false
+  Time:
+    collapsed: false
+  Width: 1848
+  X: 72
+  Y: 27

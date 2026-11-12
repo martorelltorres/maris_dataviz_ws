@@ -1,0 +1,17 @@
+# catkin
+build/
+devel/
+install/
+logs/
+.catkin_tools/
+
+# data and generated media
+bagfiles/
+*.bag
+*.mp4
+*.mkv
+
+# python / editors
+__pycache__/
+*.pyc
+.vscode/

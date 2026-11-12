@@ -1,0 +1,3 @@
+[submodule "src/orat_description"]
+	path = src/orat_description
+	url = https://github.com/srv/orat_description.git
