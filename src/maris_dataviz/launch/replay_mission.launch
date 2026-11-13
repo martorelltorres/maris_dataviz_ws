@@ -2,7 +2,7 @@
   <!--
     Replay an AUV mission folder (raw bags) and visualize it in RViz:
     navigation, mission plan, seafloor-projected camera images, side-scan
-    sonar mosaic and multibeam bathymetry.
+    sonar mosaic, multibeam bathymetry and, optionally, an aerial orthophoto.
 
     Examples:
       roslaunch maris_dataviz replay_mission.launch dataset:=sss
@@ -30,6 +30,8 @@
   <arg name="camera" default="true" doc="Project stereo camera (port) images on the seafloor"/>
   <arg name="sss" default="true" doc="Project side-scan sonar"/>
   <arg name="multibeam" default="true" doc="Build multibeam bathymetry"/>
+  <arg name="satellite" default="true"
+       doc="Show an aerial orthophoto (PNOA by default; downloaded once, needs internet) under the seafloor data"/>
   <arg name="rviz" default="true"/>
   <arg name="profile" default="auto"
        doc="RViz layout: auto (detected from the bags), sss, optical (camera + multibeam) or full"/>
@@ -64,6 +66,11 @@
       <param name="mission_dir" value="$(arg mission_dir)"/>
       <param name="line_width" value="$(arg mission_line_width)"/>
       <remap from="mission" to="/sparus2/captain/mission"/>
+    </node>
+
+    <!-- Aerial orthophoto draped under the seafloor data -->
+    <node if="$(arg satellite)" pkg="maris_dataviz" type="satellite_layer.py" name="satellite" output="screen">
+      <param name="mission_dir" value="$(arg mission_dir)"/>
     </node>
 
     <!-- Camera images projected on the seafloor -->

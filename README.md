@@ -11,6 +11,8 @@ visualize them in RViz in 3D:
 - **Side-scan sonar**: slant-range corrected, gain-normalised pings projected on
   the seafloor as a textured mosaic, plus a scrolling waterfall.
 - **Multibeam**: incremental hill-shaded bathymetry grid, live swath and beam fan.
+- **Satellite layer**: aerial orthophoto of the area draped just below
+  the measured seafloor, as a reference background.
 
 **Optical profile** — camera photomosaic and multibeam bathymetry (Andratx, lawnmower survey):
 
@@ -19,6 +21,12 @@ visualize them in RViz in 3D:
 **SSS profile** — side-scan sonar mosaic and waterfall (Cabrera):
 
 ![SSS profile](docs/images/sss.jpg)
+
+**Mission areas from afar** — satellite layer under the data (Andratx, Cabrera):
+
+![Optical mission area](docs/images/optical_overview.jpg)
+
+![SSS mission area](docs/images/sss_overview.jpg)
 
 The RViz layout adapts to the data in the mission (`sss`, `optical` or `full`),
 and the part of the mission before data collection starts is fast-forwarded.
@@ -90,6 +98,7 @@ Main arguments:
 | `ff_rate` | `20` | Fast-forward rate |
 | `profile` | `auto` | RViz layout: `auto`, `sss`, `optical`, `full` |
 | `camera` / `sss` / `multibeam` | `true` | Enable each sensor |
+| `satellite` | `true` | Aerial orthophoto under the seafloor data (needs internet the first time) |
 | `camera_side` | `port` | Stereo camera used for projection |
 | `mission_line_width` | `0.25` | Width of the mission legs (m) |
 | `loop` / `pause` | `false` | Loop playback / start paused |
@@ -119,11 +128,26 @@ recording is independent of the desktop. Bags are played at `REC_RATE`
 |---|---|
 | `play_mission.py` | Finds the mission bags and plays them with `rosbag play --clock` |
 | `nav_relay.py` | TF tree (world, world_ned, vehicle, sensors), vehicle model, trail, altitude |
-| `mission_viz.py` | Mission plan markers and sea surface |
+| `mission_viz.py` | Mission plan markers (legs on a separate topic) and sea surface |
 | `camera_projector.py` | Seafloor photomosaic and camera footprint |
 | `sss_projector.py` | Side-scan mosaic and waterfall |
 | `multibeam_mapper.py` | Bathymetry grid and swath fan |
+| `satellite_layer.py` | Aerial orthophoto mesh under the mission area |
 | `rviz_profile.py` | Starts RViz with the configuration matching the data |
 
 Projections assume a flat seafloor below the vehicle at the measured altitude.
 Mosaic tiles are written to `~/.ros/maris_dataviz_cache/`.
+
+## Satellite layer
+
+`satellite_layer.py` (disable with `satellite:=false`) downloads the map tiles covering the
+mission area plus a margin (`~margin`, 100 m), stitches them (highest zoom up to
+`~max_zoom` 19 that fits a `~max_texture` of 4096 px) and publishes a textured mesh
+that follows the seafloor measured during the mission (depth + altitude),
+`~depth_offset` (0.5 m) below it so mosaics and bathymetry stay on top. Tiles are
+cached in `~/.ros/maris_dataviz_cache/satellite/`.
+
+The default source is the PNOA orthophoto (Spain only), "PNOA cedido por
+© Instituto Geográfico Nacional", CC BY 4.0. Other XYZ sources can be set with
+`~tile_url` (`{z}`, `{x}`, `{y}` placeholders), subject to their own terms. The image
+shows the sea surface: the seabed is only visible in clear, shallow water.

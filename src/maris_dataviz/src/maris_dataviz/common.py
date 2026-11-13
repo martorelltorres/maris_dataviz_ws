@@ -74,6 +74,25 @@ def ned_to_world(n, e, d):
     return n, -e, -d
 
 
+# Web Mercator (XYZ map tiles, 256 px)
+
+def lonlat_to_tile_px(lon, lat, zoom):
+    """Longitude/latitude (deg) -> global Web Mercator pixel (x, y) at zoom."""
+    s = 256.0 * 2 ** zoom
+    lat = np.radians(np.clip(lat, -85.05112878, 85.05112878))
+    x = (np.asarray(lon) + 180.0) / 360.0 * s
+    y = (1.0 - np.log(np.tan(lat) + 1.0 / np.cos(lat)) / np.pi) / 2.0 * s
+    return x, y
+
+
+def tile_px_to_lonlat(x, y, zoom):
+    """Global Web Mercator pixel (x, y) at zoom -> longitude/latitude (deg)."""
+    s = 256.0 * 2 ** zoom
+    lon = np.asarray(x) / s * 360.0 - 180.0
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1.0 - 2.0 * np.asarray(y) / s))))
+    return lon, lat
+
+
 # --------------------------------------------------------------------------
 # Dynamic decoding of messages whose packages are not installed
 # --------------------------------------------------------------------------
@@ -449,3 +468,38 @@ def motion_start_offset(mission_dir, speed=0.3, hold=20.0, window=10.0):
         if moving[k:end].all() and end < len(i):
             return float(t[i[k]] - t[0])
     return None
+
+
+# --------------------------------------------------------------------------
+# Seafloor samples from the navigation
+# --------------------------------------------------------------------------
+
+def seafloor_samples(path, nav_topic='/sparus2/navigator/navigation', should_stop=None):
+    """(N, 3) array of (north, east, depth + altitude) along the mission.
+
+    Reads the (throttled, if present) navigation of a main bag; the result
+    is cached per bag because indexing a large bag is slow. Returns None if
+    should_stop() becomes true while reading.
+    """
+    st = os.stat(path)
+    cache_dir = os.path.expanduser('~/.ros/maris_dataviz_cache/seafloor')
+    cache = os.path.join(cache_dir, '%s_%d.npy' % (os.path.basename(path), st.st_size))
+    if os.path.exists(cache):
+        return np.load(cache)
+    import rosbag
+    rows = []
+    with rosbag.Bag(path) as bag:
+        topics = bag.get_type_and_topic_info().topics
+        topic, decim = nav_topic + '_throttle', 1
+        if topic not in topics:
+            topic, decim = nav_topic, 5
+        for i, (_, nav, _) in enumerate(bag.read_messages(topics=[topic])):
+            if should_stop is not None and should_stop():
+                return None
+            if i % decim == 0 and 0.0 < nav.altitude < 80.0:
+                rows.append((nav.position.north, nav.position.east, nav.position.depth + nav.altitude))
+    data = np.array(rows).reshape(-1, 3)
+    if not os.path.isdir(cache_dir):
+        os.makedirs(cache_dir)
+    np.save(cache, data)
+    return data

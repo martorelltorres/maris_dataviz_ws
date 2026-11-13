@@ -98,14 +98,21 @@ Visualization Manager:
           Marker Topic: /maris_dataviz/mission/markers
           Name: Mission plan
           Namespaces:
-            direction: true
             drop_lines: true
             labels: true
-            legs: true
-            legs_surface: true
             sea_surface: true
             tolerance: true
             waypoints: true
+          Queue Size: 100
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /maris_dataviz/mission/legs
+          Name: Mission legs
+          Namespaces:
+            direction: true
+            legs: true
+            legs_surface: true
           Queue Size: 100
           Value: true
         - Alpha: 0.800000011920929
@@ -142,6 +149,14 @@ Visualization Manager:
           Value: true
       Enabled: true
       Name: Mission
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/satellite/layer
+      Name: Satellite
+      Namespaces:
+        satellite: true
+      Queue Size: 10
+      Value: true
     - Class: rviz/Group
       Displays:
         - Class: rviz/MarkerArray

@@ -9,18 +9,17 @@ at their commanded altitude over the seafloor measured during the mission
 vehicle was expected to fly. Also draws a translucent sea surface.
 """
 
-import os
 import threading
 import xml.etree.ElementTree as ET
 
 import numpy as np
-import rosbag
 import rospy
 from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA, String
 from visualization_msgs.msg import Marker, MarkerArray
 
-from maris_dataviz.common import geodetic_to_ned, main_bag, ned_to_world, read_first_messages
+from maris_dataviz.common import (geodetic_to_ned, main_bag, ned_to_world, read_first_messages,
+                                  seafloor_samples)
 
 MISSION_TOPIC = '/sparus2/captain/mission'
 NAV_TOPIC = '/sparus2/navigator/navigation'
@@ -69,6 +68,8 @@ class MissionViz(object):
         self.surface_size = rospy.get_param('~surface_margin', 40.0)
         mission_dir = rospy.get_param('~mission_dir')
         self.pub = rospy.Publisher('~markers', MarkerArray, queue_size=1, latch=True)
+        # Planned legs on their own topic so they can be hidden independently.
+        self.pub_legs = rospy.Publisher('~legs', MarkerArray, queue_size=1, latch=True)
 
         self.origin = None
         self.xml = None
@@ -93,31 +94,10 @@ class MissionViz(object):
         t.start()
 
     def load_seafloor(self, path):
-        """Seafloor samples (north, east, depth+altitude) from the whole
-        navigation; cached because indexing a large bag is slow."""
-        st = os.stat(path)
-        cache = os.path.join(os.path.expanduser('~/.ros/maris_dataviz_cache/seafloor'),
-                             '%s_%d.npy' % (os.path.basename(path), st.st_size))
-        if os.path.exists(cache):
-            data = np.load(cache)
-        else:
-            rospy.loginfo('mission_viz: building seafloor model from %s (first run only)', path)
-            rows = []
-            with rosbag.Bag(path) as bag:
-                topics = bag.get_type_and_topic_info().topics
-                topic, decim = NAV_TOPIC + '_throttle', 1
-                if topic not in topics:
-                    topic, decim = NAV_TOPIC, 5
-                for i, (_, nav, _) in enumerate(bag.read_messages(topics=[topic])):
-                    if rospy.is_shutdown():
-                        return
-                    if i % decim == 0 and 0.0 < nav.altitude < 80.0:
-                        rows.append((nav.position.north, nav.position.east, nav.position.depth + nav.altitude))
-            data = np.array(rows).reshape(-1, 3)
-            if not os.path.isdir(os.path.dirname(cache)):
-                os.makedirs(os.path.dirname(cache))
-            np.save(cache, data)
-        if len(data) > 10:
+        """Seafloor samples (north, east, depth+altitude) from the whole navigation."""
+        rospy.loginfo('mission_viz: loading seafloor model from %s', path)
+        data = seafloor_samples(path, NAV_TOPIC, rospy.is_shutdown)
+        if data is not None and len(data) > 10:
             self.seafloor = Seafloor(data[:, :2], data[:, 2])
             if self.xml:
                 self.publish(self.xml)
@@ -177,9 +157,11 @@ class MissionViz(object):
             rospy.logerr('mission_viz: cannot parse mission: %s', e)
             return
         arr = MarkerArray()
-        clear = Marker()
-        clear.action = Marker.DELETEALL
-        arr.markers.append(clear)
+        legs = MarkerArray()
+        for a in (arr, legs):
+            clear = Marker()
+            clear.action = Marker.DELETEALL
+            a.markers.append(clear)
         mid = [0]
 
         def new(mtype, ns):
@@ -188,7 +170,7 @@ class MissionViz(object):
             m.ns, m.id, m.type = ns, mid[0], mtype
             m.pose.orientation.w = 1.0
             mid[0] += 1
-            arr.markers.append(m)
+            (legs if ns in ('legs', 'legs_surface', 'direction') else arr).markers.append(m)
             return m
 
         prev = None
@@ -257,6 +239,7 @@ class MissionViz(object):
             sea.scale.x, sea.scale.y, sea.scale.z = size[0], size[1], 0.01
             sea.color = ColorRGBA(0.10, 0.45, 0.75, 0.12)
         self.pub.publish(arr)
+        self.pub_legs.publish(legs)
         rospy.loginfo('mission_viz: %d mission steps published', len(steps))
 
 
