@@ -4,8 +4,9 @@
 Downloads the XYZ map tiles that cover the mission area (plus a margin),
 stitches them into one texture and publishes it as a textured mesh draped
 over the seafloor measured during the mission (depth + altitude of the
-navigation, smoothed and extrapolated outside the surveyed area), slightly
-below it so the camera / side-scan mosaics and the bathymetry stay on top.
+navigation, smoothed and extrapolated outside the surveyed area), far
+enough below it (~depth_offset) that the camera / side-scan mosaics and the
+bathymetry stay on top.
 
 Default source: PNOA orthophoto of the Spanish Instituto Geografico
 Nacional (WMTS, CC BY 4.0, "PNOA cedido por (c) Instituto Geografico
@@ -41,7 +42,7 @@ class SatelliteLayer(object):
         self.margin = float(rospy.get_param('~margin', 100.0))
         self.max_zoom = int(rospy.get_param('~max_zoom', 19))
         self.max_px = int(rospy.get_param('~max_texture', 4096))
-        self.offset = float(rospy.get_param('~depth_offset', 0.5))
+        self.offset = float(rospy.get_param('~depth_offset', 3.0))
         self.grid = int(rospy.get_param('~grid', 48))
         self.pub = rospy.Publisher('~layer', MarkerArray, queue_size=1, latch=True)
 

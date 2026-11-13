@@ -3,9 +3,9 @@
 
 Each swath (PointCloud2 in the sonar frame) is transformed to the world
 frame at its timestamp and binned on a regular grid (running mean depth per
-cell with outlier rejection). The grid is split in tiles; tiles that
-changed are re-published as hill-shaded, depth-coloured TRIANGLE_LIST
-markers. The live swath fan (sonar -> soundings) is also drawn.
+cell with outlier rejection). Small gaps without soundings are filled
+from the surrounding cells. The grid is split in tiles; tiles that changed
+are re-published as hill-shaded, depth-coloured TRIANGLE_LIST markers. The live swath fan (sonar -> soundings) is also drawn.
 """
 
 import collections
@@ -57,6 +57,7 @@ class MultibeamMapper(object):
         self.max_range = float(rospy.get_param('~max_range', 40.0))
         self.min_count = int(rospy.get_param('~min_count', 2))
         self.outlier = float(rospy.get_param('~outlier_threshold', 0.8))
+        self.fill_radius = float(rospy.get_param('~fill_radius', 1.0))
         self.period = float(rospy.get_param('~publish_period', 1.0))
         self.decimate = int(rospy.get_param('~swath_decimation', 1))
         self.sun = np.array(rospy.get_param('~sun_direction', [-0.5, 0.5, 0.7]), dtype=np.float64)
@@ -202,51 +203,64 @@ class MultibeamMapper(object):
             if self.update_zrange():
                 self.dirty = set(self.tiles.keys())  # recolour everything
             keys, self.dirty = self.dirty, set()
-            snap = {k: (self.tiles[k].sum.copy(), self.tiles[k].cnt.copy()) for k in keys}
-            # Include one-cell borders from neighbours so tiles join seamlessly.
-            nb = {}
+            # Hole filling and smoothing reach into neighbour tiles: refresh them too.
+            keys = {(ti + di, tj + dj) for (ti, tj) in keys for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                    if (ti + di, tj + dj) in self.tiles}
+            n = self.tile_cells
+            # Each tile is processed with its 8 neighbours (3n x 3n grid), so the
+            # shared borders get identical heights and tiles join seamlessly.
+            ext = {}
             for (ti, tj) in keys:
-                for d in ((1, 0), (0, 1), (1, 1)):
-                    k2 = (ti + d[0], tj + d[1])
-                    if k2 in self.tiles:
-                        nb[(ti, tj, d)] = (self.tiles[k2].sum.copy(), self.tiles[k2].cnt.copy())
-        if not snap or self.zrange is None:
+                S = np.zeros((3 * n, 3 * n))
+                C = np.zeros((3 * n, 3 * n))
+                for di in (-1, 0, 1):
+                    for dj in (-1, 0, 1):
+                        t = self.tiles.get((ti + di, tj + dj))
+                        if t is not None:
+                            r, c = (di + 1) * n, (dj + 1) * n
+                            S[r:r + n, c:c + n] = t.sum
+                            C[r:r + n, c:c + n] = t.cnt
+                ext[(ti, tj)] = (S, C)
+        if not ext or self.zrange is None:
             return
         arr = MarkerArray()
-        for key, (s, c) in snap.items():
-            m = self.tile_marker(key, s, c, nb)
+        for key, (S, C) in ext.items():
+            m = self.tile_marker(key, S, C)
             if m is not None:
                 arr.markers.append(m)
         if arr.markers:
             self.pub.publish(arr)
 
-    def tile_marker(self, key, s, c, nb):
+    def tile_marker(self, key, S, C):
+        from scipy.ndimage import convolve
         n = self.tile_cells
         ti, tj = key
-        # Extended (n+1)x(n+1) height grid using the neighbour borders.
-        S = np.zeros((n + 1, n + 1))
-        Cn = np.zeros((n + 1, n + 1))
-        S[:n, :n], Cn[:n, :n] = s, c
-        if (ti, tj, (1, 0)) in nb:
-            S[n, :n], Cn[n, :n] = nb[(ti, tj, (1, 0))][0][0, :], nb[(ti, tj, (1, 0))][1][0, :]
-        if (ti, tj, (0, 1)) in nb:
-            S[:n, n], Cn[:n, n] = nb[(ti, tj, (0, 1))][0][:, 0], nb[(ti, tj, (0, 1))][1][:, 0]
-        if (ti, tj, (1, 1)) in nb:
-            S[n, n], Cn[n, n] = nb[(ti, tj, (1, 1))][0][0, 0], nb[(ti, tj, (1, 1))][1][0, 0]
-        valid = Cn >= self.min_count
-        if valid.sum() < 3:
+        valid = C >= self.min_count
+        if valid[n:2 * n + 1, n:2 * n + 1].sum() < 3:
             return None
-        Z = np.where(valid, S / np.maximum(Cn, 1), np.nan)
+        Z0 = np.where(valid, S / np.maximum(C, 1), 0.0)
+        # Fill small gaps (acoustic shadows, missing detections) with the mean
+        # of the valid cells within fill_radius, only where at least half of
+        # that disc has data: interior holes are closed, swath edges are not
+        # extended.
+        if self.fill_radius > 0.0:
+            r = int(round(self.fill_radius / self.cell))
+            y, x = np.mgrid[-r:r + 1, -r:r + 1]
+            disc = ((x * x + y * y) <= r * r).astype(np.float64)
+            wv = convolve(valid.astype(np.float64), disc, mode='constant')
+            fill = ~valid & (wv >= 0.5 * disc.sum())
+            Z0 = np.where(fill, convolve(Z0, disc, mode='constant') / np.maximum(wv, 1e-6), Z0)
+            valid = valid | fill
         # Light 3x3 smoothing of valid cells only.
-        Zf = np.nan_to_num(Z)
         W = valid.astype(np.float64)
         k = np.ones((3, 3))
-        from scipy.ndimage import convolve
-        Zs = convolve(Zf, k, mode='nearest') / np.maximum(convolve(W, k, mode='nearest'), 1e-6)
+        Zs = convolve(np.where(valid, Z0, 0.0), k, mode='constant') / np.maximum(convolve(W, k, mode='constant'), 1e-6)
         Z = np.where(valid, Zs, np.nan)
-
         # Hillshade from grid normals.
-        gx, gy = np.gradient(np.nan_to_num(Z, nan=np.nanmean(Z)), self.cell)
+        gx, gy = np.gradient(np.where(valid, Z, np.nanmean(Z)), self.cell)
+        # Keep the (n+1) x (n+1) vertex grid of this tile.
+        sl = (slice(n, 2 * n + 1), slice(n, 2 * n + 1))
+        Z, valid, gx, gy = Z[sl], valid[sl], gx[sl], gy[sl]
         nrm = np.stack([-gx, -gy, np.ones_like(gx)], -1)
         nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
         shade = np.clip(0.35 + 0.75 * nrm.dot(self.sun), 0.0, 1.0)

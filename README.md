@@ -144,7 +144,7 @@ Mosaic tiles are written to `~/.ros/maris_dataviz_cache/`.
 mission area plus a margin (`~margin`, 100 m), stitches them (highest zoom up to
 `~max_zoom` 19 that fits a `~max_texture` of 4096 px) and publishes a textured mesh
 that follows the seafloor measured during the mission (depth + altitude),
-`~depth_offset` (0.5 m) below it so mosaics and bathymetry stay on top. Tiles are
+`~depth_offset` (3 m) below it so mosaics and bathymetry stay on top. Tiles are
 cached in `~/.ros/maris_dataviz_cache/satellite/`.
 
 The default source is the PNOA orthophoto (Spain only), "PNOA cedido por

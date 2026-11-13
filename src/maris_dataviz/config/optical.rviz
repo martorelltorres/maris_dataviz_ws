@@ -164,7 +164,7 @@ Visualization Manager:
           Marker Topic: /maris_dataviz/camera/mosaic
           Name: Photo mosaic
           Namespaces:
-            camera_mosaic: true
+            {}
           Queue Size: 200
           Value: true
         - Class: rviz/MarkerArray
@@ -172,11 +172,10 @@ Visualization Manager:
           Marker Topic: /maris_dataviz/camera/footprint
           Name: Camera footprint
           Namespaces:
-            footprint: true
-            frustum: true
+            {}
           Queue Size: 10
           Value: true
-      Enabled: true
+      Enabled: false
       Name: Camera
     - Class: rviz/Group
       Displays:
@@ -256,7 +255,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 44.3265266418457
+      Distance: 71.60741424560547
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -264,17 +263,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7850000262260437
       Focal Point:
-        X: 3.36923885345459
-        Y: 12.979453086853027
-        Z: -17.36604118347168
+        X: 8.246843338012695
+        Y: 6.083353519439697
+        Z: -16.78618812561035
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8497970104217529
+      Pitch: 1.4447964429855347
       Target Frame: sparus2/base_link
-      Yaw: 4.410007953643799
+      Yaw: 1.685003638267517
     Saved:
       - Angle: 0
         Class: rviz/TopDownOrtho
@@ -298,7 +297,7 @@ Window Geometry:
   Height: 1016
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000300000000000001560000035ffc0200000001fb000000100044006900730070006c006100790073010000003d0000035f000000c900ffffff00000001000002800000035ffc0200000001fb0000001800430061006d00650072006100200069006d006100670065010000003d0000035f0000001600ffffff000000030000073800000039fc0100000001fb0000000800540069006d0065010000000000000738000003bc00ffffff000003560000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000300000000000001560000035ffc0200000001fb000000100044006900730070006c006100790073010000003d0000035f000000c900ffffff00000001000001bd0000035ffc0200000001fb0000001800430061006d00650072006100200069006d006100670065010000003d0000035f0000001600ffffff000000030000073800000039fc0100000001fb0000000800540069006d0065010000000000000738000003bc00ffffff000004190000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Time:
     collapsed: false
   Width: 1848
