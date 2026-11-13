@@ -4,7 +4,10 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Navigation1
+        - /Navigation1/Vehicle1/Namespaces1
+        - /Mission1/Mission plan1/Namespaces1
+        - /Mission1/Mission legs1
+        - /Mission1/Mission legs1/Namespaces1
       Splitter Ratio: 0.6000000238418579
     Tree Height: 802
   - Class: rviz/Time
@@ -74,7 +77,7 @@ Visualization Manager:
           Head Length: 0.20000000298023224
           Length: 0.30000001192092896
           Line Style: Billboards
-          Line Width: 0.07999999821186066
+          Line Width: 0.05000000074505806
           Name: Trail
           Offset:
             X: 0
@@ -94,24 +97,20 @@ Visualization Manager:
     - Class: rviz/Group
       Displays:
         - Class: rviz/MarkerArray
-          Enabled: true
+          Enabled: false
           Marker Topic: /maris_dataviz/mission/markers
           Name: Mission plan
           Namespaces:
-            drop_lines: true
-            labels: true
-            sea_surface: true
-            tolerance: true
-            waypoints: true
+            {}
           Queue Size: 100
-          Value: true
+          Value: false
         - Class: rviz/MarkerArray
           Enabled: true
           Marker Topic: /maris_dataviz/mission/legs
           Name: Mission legs
           Namespaces:
-            direction: true
-            legs: true
+            direction: false
+            legs: false
             legs_surface: true
           Queue Size: 100
           Value: true
@@ -160,22 +159,23 @@ Visualization Manager:
     - Class: rviz/Group
       Displays:
         - Class: rviz/MarkerArray
-          Enabled: true
+          Enabled: false
           Marker Topic: /maris_dataviz/camera/mosaic
           Name: Photo mosaic
           Namespaces:
-            {}
+            camera_mosaic: true
           Queue Size: 200
-          Value: true
+          Value: false
         - Class: rviz/MarkerArray
           Enabled: true
           Marker Topic: /maris_dataviz/camera/footprint
           Name: Camera footprint
           Namespaces:
-            {}
+            footprint: true
+            frustum: true
           Queue Size: 10
           Value: true
-      Enabled: false
+      Enabled: true
       Name: Camera
     - Class: rviz/Group
       Displays:
@@ -185,6 +185,14 @@ Visualization Manager:
           Name: Bathymetry
           Namespaces:
             bathymetry: true
+          Queue Size: 200
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /maris_dataviz/textured_bathymetry/mesh
+          Name: Textured bathymetry
+          Namespaces:
+            textured_bathymetry: true
           Queue Size: 200
           Value: true
         - Class: rviz/Marker
@@ -255,7 +263,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 71.60741424560547
+      Distance: 97.14208984375
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -263,17 +271,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7850000262260437
       Focal Point:
-        X: 8.246843338012695
-        Y: 6.083353519439697
-        Z: -16.78618812561035
+        X: 0
+        Y: 0
+        Z: 0
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.4447964429855347
-      Target Frame: sparus2/base_link
-      Yaw: 1.685003638267517
+      Pitch: 0.6247970461845398
+      Target Frame: mission_view
+      Yaw: 1.630017638206482
     Saved:
       - Angle: 0
         Class: rviz/TopDownOrtho

@@ -11,7 +11,9 @@ visualize them in RViz in 3D:
 - **Side-scan sonar**: slant-range corrected, gain-normalised pings projected on
   the seafloor as a textured mosaic, plus a scrolling waterfall.
 - **Multibeam**: incremental hill-shaded bathymetry grid, live swath and beam fan.
-- **Satellite layer**: aerial orthophoto of the area draped just below
+- **Textured bathymetry**: camera images projected onto the multibeam surface
+  (3D photomosaic of the real seafloor relief).
+- **Satellite layer**: aerial orthophoto of the area draped below
   the measured seafloor, as a reference background.
 
 **Optical profile** — camera photomosaic and multibeam bathymetry (Andratx, lawnmower survey):
@@ -28,7 +30,12 @@ visualize them in RViz in 3D:
 
 ![SSS mission area](docs/images/sss_overview.jpg)
 
-The RViz layout adapts to the data in the mission (`sss`, `optical` or `full`),
+The RViz layout adapts to the data in the mission (`sss`, `optical` or `full`).
+The camera stays fixed on the mission area (TF frame `mission_view`, centre of
+the mission) while the vehicle moves and the maps are built; set the view's
+Target Frame to `sparus2/base_link` to follow the vehicle instead.
+In the optical layout the flat photo mosaic is disabled in favour of the
+textured bathymetry (it can be re-enabled from the Displays panel),
 and the part of the mission before data collection starts is fast-forwarded.
 
 ## Contents
@@ -98,6 +105,7 @@ Main arguments:
 | `ff_rate` | `20` | Fast-forward rate |
 | `profile` | `auto` | RViz layout: `auto`, `sss`, `optical`, `full` |
 | `camera` / `sss` / `multibeam` | `true` | Enable each sensor |
+| `textured_bathymetry` | `true` | Texture the bathymetry with the camera images (needs camera and multibeam) |
 | `satellite` | `true` | Aerial orthophoto under the seafloor data (needs internet the first time) |
 | `camera_side` | `port` | Stereo camera used for projection |
 | `mission_line_width` | `0.25` | Width of the mission legs (m) |
@@ -119,8 +127,12 @@ rosrun maris_dataviz record_mission.sh ~/videos/sss.mp4 sss dataset:=sss duratio
 
 RViz runs in a nested X server (Xephyr) with its own ROS master, so the
 recording is independent of the desktop. Bags are played at `REC_RATE`
-(default 0.5) and the video is re-timed to real mission speed. Other settings:
-`REC_SIZE` (1920x1080), `REC_FPS` (30), `REC_CRF` (14).
+(default 0.5) and the video is re-timed to `REC_SPEEDUP` times the real mission
+speed (default 1). Other settings: `REC_SIZE` (1920x1080), `REC_FPS` (30), `REC_CRF` (14).
+
+```bash
+REC_RATE=1 REC_SPEEDUP=10 rosrun maris_dataviz record_mission.sh ~/videos/sss_x10.mp4 sss dataset:=sss
+```
 
 ## Nodes
 
@@ -128,11 +140,12 @@ recording is independent of the desktop. Bags are played at `REC_RATE`
 |---|---|
 | `play_mission.py` | Finds the mission bags and plays them with `rosbag play --clock` |
 | `nav_relay.py` | TF tree (world, world_ned, vehicle, sensors), vehicle model, trail, altitude |
-| `mission_viz.py` | Mission plan markers (legs on a separate topic) and sea surface |
+| `mission_viz.py` | Mission plan markers (legs on a separate topic), sea surface and `mission_view` frame |
 | `camera_projector.py` | Seafloor photomosaic and camera footprint |
 | `sss_projector.py` | Side-scan mosaic and waterfall |
 | `multibeam_mapper.py` | Bathymetry grid and swath fan |
 | `satellite_layer.py` | Aerial orthophoto mesh under the mission area |
+| `textured_bathymetry.py` | Multibeam bathymetry textured with camera keyframes |
 | `rviz_profile.py` | Starts RViz with the configuration matching the data |
 
 Projections assume a flat seafloor below the vehicle at the measured altitude.

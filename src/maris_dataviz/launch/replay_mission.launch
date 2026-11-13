@@ -30,6 +30,8 @@
   <arg name="camera" default="true" doc="Project stereo camera (port) images on the seafloor"/>
   <arg name="sss" default="true" doc="Project side-scan sonar"/>
   <arg name="multibeam" default="true" doc="Build multibeam bathymetry"/>
+  <arg name="textured_bathymetry" default="true"
+       doc="Texture the multibeam bathymetry with the camera images (needs camera and multibeam)"/>
   <arg name="satellite" default="true"
        doc="Show an aerial orthophoto (PNOA by default; downloaded once, needs internet) under the seafloor data"/>
   <arg name="rviz" default="true"/>
@@ -98,6 +100,17 @@
     <node if="$(arg multibeam)" pkg="maris_dataviz" type="multibeam_mapper.py" name="multibeam" output="screen">
       <param name="cell_size" value="0.2"/>
       <remap from="multibeam" to="/sparus2/norbit_wbms_multibeam/multibeam_scan"/>
+    </node>
+
+    <!-- Multibeam bathymetry textured with the camera images -->
+    <node if="$(eval arg('camera') and arg('multibeam') and arg('textured_bathymetry'))"
+          pkg="maris_dataviz" type="textured_bathymetry.py" name="textured_bathymetry" output="screen">
+      <param name="cell_size" value="0.2"/>
+      <param name="decode_reduction" value="4"/>
+      <remap from="multibeam" to="/sparus2/norbit_wbms_multibeam/multibeam_scan"/>
+      <remap from="altitude" to="nav/altitude"/>
+      <remap from="image" to="/sparus2/flir_spinnaker_stereo_camera/$(arg camera_side)/image_raw/compressed"/>
+      <remap from="camera_info" to="/sparus2/flir_spinnaker_stereo_camera/$(arg camera_side)/camera_info"/>
     </node>
   </group>
 

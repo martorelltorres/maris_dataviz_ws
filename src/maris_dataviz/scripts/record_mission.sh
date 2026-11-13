@@ -5,7 +5,8 @@
 # so the recording is not affected by other windows and does not interfere
 # with other ROS sessions. The bags are played at REC_RATE (slower than real
 # time gives RViz more rendered frames per mission second with software
-# OpenGL); the final video is re-timed to real mission speed.
+# OpenGL); the final video is re-timed to REC_SPEEDUP times the real mission
+# speed.
 #
 # Usage:
 #   record_mission.sh OUTPUT.mp4 PROFILE [replay_mission.launch args...]
@@ -14,7 +15,8 @@
 #   record_mission.sh ~/videos/sss.mp4 sss dataset:=sss
 #
 # Environment (defaults): REC_DISPLAY=:5 REC_PORT=11313 REC_SIZE=1920x1080
-#   REC_FPS=30 REC_RATE=0.5 REC_CRF=14 REC_TAIL=8 (seconds kept after the end)
+#   REC_FPS=30 REC_RATE=0.5 REC_SPEEDUP=1 REC_CRF=14
+#   REC_TAIL=8 (seconds kept after the end)
 
 set -eo pipefail
 
@@ -24,6 +26,7 @@ PORT=${REC_PORT:-11313}
 SIZE=${REC_SIZE:-1920x1080}
 FPS=${REC_FPS:-30}
 RATE=${REC_RATE:-0.5}
+SPEEDUP=${REC_SPEEDUP:-1}
 CRF=${REC_CRF:-14}
 TAIL=${REC_TAIL:-8}
 W=${SIZE%x*}; H=${SIZE#*x}
@@ -88,7 +91,7 @@ kill -INT "$FFMPEG"; wait "$FFMPEG" || true
 kill -INT "$LAUNCH" 2>/dev/null || true
 
 echo "record_mission: encoding final video"
-SPEED=$(python3 -c "print(1.0 / float('$RATE'))")
+SPEED=$(python3 -c "print(float('$SPEEDUP') / float('$RATE'))")
 ffmpeg -hide_banner -loglevel error -y -i "$RAW" -vf "setpts=PTS/$SPEED" -r "$FPS" \
   -c:v libx264 -preset slow -crf "$CRF" -pix_fmt yuv420p -movflags +faststart "$OUT"
 rm -f "$RAW"

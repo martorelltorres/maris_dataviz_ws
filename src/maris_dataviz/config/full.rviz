@@ -158,12 +158,12 @@ Visualization Manager:
   - Class: rviz/Group
     Displays:
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /maris_dataviz/camera/mosaic
       Name: Photo mosaic
       Namespaces: {}
       Queue Size: 200
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /maris_dataviz/camera/footprint
@@ -192,6 +192,14 @@ Visualization Manager:
       Marker Topic: /maris_dataviz/multibeam/bathymetry
       Name: Bathymetry
       Namespaces: {}
+      Queue Size: 200
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /maris_dataviz/textured_bathymetry/mesh
+      Name: Textured bathymetry
+      Namespaces:
+        textured_bathymetry: true
       Queue Size: 200
       Value: true
     - Class: rviz/Marker
@@ -273,7 +281,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 40
+      Distance: 120
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -281,16 +289,16 @@ Visualization Manager:
         Value: false
       Field of View: 0.7850000262260437
       Focal Point:
-        X: 26.741254806518555
-        Y: 25.411888122558594
-        Z: -4.990490436553955
+        X: 0
+        Y: 0
+        Z: 0
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
       Pitch: 0.75
-      Target Frame: sparus2/base_link
+      Target Frame: mission_view
       Yaw: 3.6
     Saved:
     - Angle: 0

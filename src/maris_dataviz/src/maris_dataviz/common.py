@@ -503,3 +503,218 @@ def seafloor_samples(path, nav_topic='/sparus2/navigator/navigation', should_sto
         os.makedirs(cache_dir)
     np.save(cache, data)
     return data
+
+
+# --------------------------------------------------------------------------
+# Rotations, point clouds and camera images
+# --------------------------------------------------------------------------
+
+def quat_to_rot(q):
+    """geometry_msgs Quaternion -> 3x3 rotation matrix."""
+    x, y, z, w = q.x, q.y, q.z, q.w
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+_PC2_DT = {7: np.float32, 8: np.float64}
+
+
+def cloud_xyz(msg):
+    """(N, 3) float64 x, y, z of a sensor_msgs/PointCloud2."""
+    f = {fl.name: fl for fl in msg.fields}
+    n = msg.width * msg.height
+    buf = np.frombuffer(msg.data, np.uint8).reshape(n, msg.point_step)
+    cols = []
+    for name in ('x', 'y', 'z'):
+        fl = f[name]
+        dt = np.dtype(_PC2_DT[fl.datatype]).newbyteorder('>' if msg.is_bigendian else '<')
+        cols.append(buf[:, fl.offset:fl.offset + dt.itemsize].copy().view(dt).ravel())
+    return np.stack(cols, 1).astype(np.float64)
+
+
+class ImageEnhancer(object):
+    """Undistortion (pinhole + distortion from CameraInfo, at any decoded
+    resolution) and colour enhancement of underwater images."""
+
+    def __init__(self, info, width, height):
+        sx, sy = width / float(info.width), height / float(info.height)
+        K = np.array(info.K, dtype=np.float64).reshape(3, 3)
+        K[0, :] *= sx
+        K[1, :] *= sy
+        import cv2
+        self.K = K
+        self.size = (width, height)
+        self.maps = cv2.initUndistortRectifyMap(K, np.array(info.D, dtype=np.float64), None, K,
+                                                (width, height), cv2.CV_16SC2)
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+    def undistort(self, bgr):
+        import cv2
+        if (bgr.shape[1], bgr.shape[0]) != self.size:
+            bgr = cv2.resize(bgr, self.size, interpolation=cv2.INTER_AREA)
+        return cv2.remap(bgr, self.maps[0], self.maps[1], cv2.INTER_LINEAR)
+
+    def enhance(self, bgr):
+        """Gray-world white balance followed by CLAHE on luminance."""
+        import cv2
+        f = bgr.astype(np.float32)
+        means = f.reshape(-1, 3).mean(0) + 1e-3
+        f *= means.mean() / means
+        bgr = np.clip(f, 0, 255).astype(np.uint8)
+        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+        lab[:, :, 0] = self.clahe.apply(lab[:, :, 0])
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+# --------------------------------------------------------------------------
+# Multibeam: swath ingestion and bathymetry grid
+# --------------------------------------------------------------------------
+
+class SwathQueue(object):
+    """Queue of multibeam swaths transformed to the world frame once TF
+    covers their timestamp. pop_ready() never blocks: swaths newer than the
+    latest vehicle pose stay queued for the next call."""
+
+    def __init__(self, tf_buffer, world, max_range=40.0, maxlen=4000):
+        import collections
+        self.tf = tf_buffer
+        self.world = world
+        self.max_range = max_range
+        self.pending = collections.deque(maxlen=maxlen)
+
+    def add(self, msg):
+        self.pending.append(msg)
+
+    def pop_ready(self):
+        """List of (msg, points in sensor frame, points in world frame)."""
+        import tf2_ros
+        import rospy
+        out = []
+        if not self.pending:
+            return out
+        try:
+            latest = self.tf.lookup_transform(self.world, self.pending[0].header.frame_id,
+                                              rospy.Time(0)).header.stamp
+        except Exception:  # noqa  (TF not available yet)
+            return out
+        while self.pending and self.pending[0].header.stamp <= latest:
+            msg = self.pending.popleft()
+            try:
+                tr = self.tf.lookup_transform(self.world, msg.header.frame_id, msg.header.stamp)
+            except tf2_ros.ExtrapolationException:
+                continue  # older than the TF buffer
+            except Exception as e:  # noqa
+                rospy.logwarn_throttle(10, 'SwathQueue: TF %s', e)
+                continue
+            p = cloud_xyz(msg)
+            r = np.linalg.norm(p, axis=1)
+            p = p[np.isfinite(r) & (r > 0.3) & (r < self.max_range)]
+            if len(p) == 0:
+                continue
+            t = tr.transform.translation
+            out.append((msg, p, p.dot(quat_to_rot(tr.transform.rotation).T) + np.array([t.x, t.y, t.z])))
+        return out
+
+
+class BathyGrid(object):
+    """Regular grid of soundings (running mean height per cell with outlier
+    rejection), stored in square tiles of tile_cells x tile_cells cells.
+    Cell (i, j) covers [i, i+1) x [j, j+1) * cell in world x, y."""
+
+    class _Tile(object):
+        def __init__(self, n):
+            self.sum = np.zeros((n, n))
+            self.cnt = np.zeros((n, n))
+
+    def __init__(self, cell=0.2, tile_cells=64, outlier=0.8, min_count=2, fill_radius=1.0):
+        import threading
+        self.cell = cell
+        self.n = tile_cells
+        self.outlier = outlier
+        self.min_count = min_count
+        self.fill_radius = fill_radius
+        self.tiles = {}
+        self.lock = threading.Lock()
+
+    def accumulate(self, w):
+        """Add (N, 3) world points; returns the set of modified tile keys."""
+        n = self.n
+        ij = np.floor(w[:, :2] / self.cell).astype(np.int64)
+        tk = np.floor_divide(ij, n)
+        loc = ij - tk * n
+        keys = tk[:, 0] * 1000003 + tk[:, 1]
+        dirty = set()
+        with self.lock:
+            for k in np.unique(keys):
+                sel = keys == k
+                key = (int(tk[sel][0, 0]), int(tk[sel][0, 1]))
+                tile = self.tiles.get(key)
+                if tile is None:
+                    tile = self.tiles[key] = self._Tile(n)
+                li, lj, z = loc[sel, 0], loc[sel, 1], w[sel, 2]
+                # Reject soundings far from the current cell mean.
+                have = tile.cnt[li, lj] >= 3
+                mean = np.where(have, tile.sum[li, lj] / np.maximum(tile.cnt[li, lj], 1), z)
+                ok = np.abs(z - mean) < self.outlier
+                np.add.at(tile.sum, (li[ok], lj[ok]), z[ok])
+                np.add.at(tile.cnt, (li[ok], lj[ok]), 1)
+                dirty.add(key)
+        return dirty
+
+    def valid_heights(self):
+        """1-D array with the mean height of every valid cell."""
+        with self.lock:
+            zs = [t.sum[t.cnt >= self.min_count] / t.cnt[t.cnt >= self.min_count] for t in self.tiles.values()]
+        zs = [z for z in zs if len(z)]
+        return np.concatenate(zs) if zs else np.zeros(0)
+
+    def window(self, i0, j0, ni, nj):
+        """Raw (sum, count) arrays of the ni x nj cells starting at (i0, j0)."""
+        n = self.n
+        S = np.zeros((ni, nj))
+        C = np.zeros((ni, nj))
+        with self.lock:
+            for ti in range(i0 // n, (i0 + ni - 1) // n + 1):
+                for tj in range(j0 // n, (j0 + nj - 1) // n + 1):
+                    t = self.tiles.get((ti, tj))
+                    if t is None:
+                        continue
+                    a0, a1 = max(i0, ti * n), min(i0 + ni, ti * n + n)
+                    b0, b1 = max(j0, tj * n), min(j0 + nj, tj * n + n)
+                    S[a0 - i0:a1 - i0, b0 - j0:b1 - j0] = t.sum[a0 - ti * n:a1 - ti * n, b0 - tj * n:b1 - tj * n]
+                    C[a0 - i0:a1 - i0, b0 - j0:b1 - j0] = t.cnt[a0 - ti * n:a1 - ti * n, b0 - tj * n:b1 - tj * n]
+        return S, C
+
+    def margin(self):
+        """Cells of context needed around a window for heights()."""
+        return int(round(self.fill_radius / self.cell)) + 2
+
+    def heights(self, S, C):
+        """Heights of a window (NaN where unknown). Small gaps (acoustic
+        shadows, missing detections) are filled with the mean of the valid
+        cells within fill_radius, only where at least half of that disc has
+        data: interior holes are closed, swath edges are not extended. Then
+        a light 3x3 smoothing. Cells closer than margin() to the window
+        border lack context and should be cropped by the caller."""
+        from scipy.ndimage import convolve
+        valid = C >= self.min_count
+        Z0 = np.where(valid, S / np.maximum(C, 1), 0.0)
+        if self.fill_radius > 0.0:
+            r = int(round(self.fill_radius / self.cell))
+            y, x = np.mgrid[-r:r + 1, -r:r + 1]
+            disc = ((x * x + y * y) <= r * r).astype(np.float64)
+            wv = convolve(valid.astype(np.float64), disc, mode='constant')
+            fill = ~valid & (wv >= 0.5 * disc.sum())
+            Z0 = np.where(fill, convolve(Z0, disc, mode='constant') / np.maximum(wv, 1e-6), Z0)
+            valid = valid | fill
+        k = np.ones((3, 3))
+        Zs = convolve(np.where(valid, Z0, 0.0), k, mode='constant') / \
+            np.maximum(convolve(valid.astype(np.float64), k, mode='constant'), 1e-6)
+        return np.where(valid, Zs, np.nan)
+
+    def heights_box(self, i0, j0, ni, nj):
+        """heights() of the ni x nj cells at (i0, j0), with full context."""
+        m = self.margin()
+        S, C = self.window(i0 - m, j0 - m, ni + 2 * m, nj + 2 * m)
+        return self.heights(S, C)[m:m + ni, m:m + nj]

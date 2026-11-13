@@ -21,17 +21,11 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Range
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker, MarkerArray
 
-from maris_dataviz.common import ScalarBuffer, grid_triangles, make_cache_dir, write_textured_dae
+from maris_dataviz.common import (ImageEnhancer, ScalarBuffer, grid_triangles, make_cache_dir, quat_to_rot,
+                                  write_textured_dae)
 
 REDUCE = {1: cv2.IMREAD_COLOR, 2: cv2.IMREAD_REDUCED_COLOR_2,
           4: cv2.IMREAD_REDUCED_COLOR_4, 8: cv2.IMREAD_REDUCED_COLOR_8}
-
-
-def quat_to_rot(q):
-    x, y, z, w = q.x, q.y, q.z, q.w
-    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
 
 
 class CameraProjector(object):
@@ -52,10 +46,9 @@ class CameraProjector(object):
         tf2_ros.TransformListener(self.tf)
         self.alt = ScalarBuffer()
         self.info = None
-        self.maps = None
+        self.enh = None
         self.last_key = None
         self.n_tiles = 0
-        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.lock = threading.Lock()
         self.pending = None
 
@@ -94,27 +87,6 @@ class CameraProjector(object):
                 break
 
     # ------------------------------------------------------------------
-    def setup_maps(self, w, h):
-        info = self.info
-        sx, sy = w / float(info.width), h / float(info.height)
-        K = np.array(info.K, dtype=np.float64).reshape(3, 3)
-        K[0, :] *= sx
-        K[1, :] *= sy
-        D = np.array(info.D, dtype=np.float64)
-        self.K = K
-        self.maps = cv2.initUndistortRectifyMap(K, D, None, K, (w, h), cv2.CV_16SC2)
-        self.size = (w, h)
-
-    def enhance_img(self, bgr):
-        # Gray-world white balance followed by CLAHE on luminance.
-        f = bgr.astype(np.float32)
-        means = f.reshape(-1, 3).mean(0) + 1e-3
-        f *= means.mean() / means
-        bgr = np.clip(f, 0, 255).astype(np.uint8)
-        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
-        lab[:, :, 0] = self.clahe.apply(lab[:, :, 0])
-        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
     def process(self, msg):
         if self.info is None:
             rospy.logwarn_throttle(10, 'camera_projector: waiting for camera_info')
@@ -138,11 +110,10 @@ class CameraProjector(object):
         C = np.array([tr.transform.translation.x, tr.transform.translation.y, tr.transform.translation.z])
 
         # Footprint grid: pixel -> ray -> plane intersection.
-        if self.maps is None:
-            w = self.info.width // self.reduce
-            h = self.info.height // self.reduce
-            self.setup_maps(w, h)
-        w, h = self.size
+        if self.enh is None:
+            self.enh = ImageEnhancer(self.info, self.info.width // self.reduce, self.info.height // self.reduce)
+            self.K = self.enh.K
+        w, h = self.enh.size
         rows, cols = self.grid
         us = np.linspace(0, w - 1, cols)
         vs = np.linspace(0, h - 1, rows)
@@ -167,11 +138,9 @@ class CameraProjector(object):
         img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), REDUCE.get(self.reduce, cv2.IMREAD_COLOR))
         if img is None:
             return
-        if img.shape[1] != w or img.shape[0] != h:
-            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
-        img = cv2.remap(img, self.maps[0], self.maps[1], cv2.INTER_LINEAR)
+        img = self.enh.undistort(img)
         if self.enhance:
-            img = self.enhance_img(img)
+            img = self.enh.enhance(img)
         if self.pub_img.get_num_connections():
             out = Image()
             out.header = msg.header

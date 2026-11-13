@@ -6,7 +6,9 @@ from the navigation bag, so the full plan is shown from the first second
 regardless of the playback start offset. Altitude-referenced legs are drawn
 at their commanded altitude over the seafloor measured during the mission
 (depth + altitude of the vehicle navigation), so the plan sits where the
-vehicle was expected to fly. Also draws a translucent sea surface.
+vehicle was expected to fly. Also draws a translucent sea surface and
+publishes the static TF frame `mission_view` at the centre of the mission
+(on the seafloor), used as a fixed target for the RViz camera.
 """
 
 import threading
@@ -14,7 +16,8 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import rospy
-from geometry_msgs.msg import Point
+import tf2_ros
+from geometry_msgs.msg import Point, TransformStamped
 from std_msgs.msg import ColorRGBA, String
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -68,6 +71,8 @@ class MissionViz(object):
         self.surface_size = rospy.get_param('~surface_margin', 40.0)
         mission_dir = rospy.get_param('~mission_dir')
         self.pub = rospy.Publisher('~markers', MarkerArray, queue_size=1, latch=True)
+        self.view_tfb = tf2_ros.StaticTransformBroadcaster()
+        self.publish_view_frame(0.0, 0.0, 0.0)  # until the mission is parsed
         # Planned legs on their own topic so they can be hidden independently.
         self.pub_legs = rospy.Publisher('~legs', MarkerArray, queue_size=1, latch=True)
 
@@ -101,6 +106,16 @@ class MissionViz(object):
             self.seafloor = Seafloor(data[:, :2], data[:, 2])
             if self.xml:
                 self.publish(self.xml)
+
+    def publish_view_frame(self, n, e, z):
+        t = TransformStamped()
+        t.header.stamp = rospy.Time.now()
+        t.header.frame_id = self.frame
+        t.child_frame_id = 'mission_view'
+        t.transform.translation.x, t.transform.translation.y, _ = ned_to_world(n, e, 0.0)
+        t.transform.translation.z = z
+        t.transform.rotation.w = 1.0
+        self.view_tfb.sendTransform(t)
 
     def on_mission(self, msg):
         if self.origin is not None and msg.data != self.xml:
@@ -238,6 +253,8 @@ class MissionViz(object):
             sea.pose.position = self.to_world(c_ne[0], c_ne[1], 0.0)
             sea.scale.x, sea.scale.y, sea.scale.z = size[0], size[1], 0.01
             sea.color = ColorRGBA(0.10, 0.45, 0.75, 0.12)
+            floor = self.seafloor.depth_at(c_ne[0], c_ne[1])
+            self.publish_view_frame(c_ne[0], c_ne[1], -(floor or 0.0))
         self.pub.publish(arr)
         self.pub_legs.publish(legs)
         rospy.loginfo('mission_viz: %d mission steps published', len(steps))

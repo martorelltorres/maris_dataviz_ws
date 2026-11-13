@@ -14,6 +14,7 @@ catkin_install_python(PROGRAMS
   scripts/sss_projector.py
   scripts/multibeam_mapper.py
   scripts/satellite_layer.py
+  scripts/textured_bathymetry.py
   scripts/rviz_profile.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

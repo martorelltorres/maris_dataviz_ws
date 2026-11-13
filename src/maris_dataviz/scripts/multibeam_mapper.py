@@ -3,13 +3,14 @@
 
 Each swath (PointCloud2 in the sonar frame) is transformed to the world
 frame at its timestamp and binned on a regular grid (running mean depth per
-cell with outlier rejection). Small gaps without soundings are filled
-from the surrounding cells. The grid is split in tiles; tiles that changed
-are re-published as hill-shaded, depth-coloured TRIANGLE_LIST markers. The live swath fan (sonar -> soundings) is also drawn.
+cell with outlier rejection). Small gaps without soundings are filled from
+the surrounding cells. The grid is split in tiles; tiles that changed are
+re-published as hill-shaded, depth-coloured TRIANGLE_LIST markers. The live
+swath fan (sonar -> soundings) is also drawn.
 """
 
-import collections
 import threading
+import time
 
 import numpy as np
 import rospy
@@ -19,60 +20,30 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker, MarkerArray
 
-from maris_dataviz.common import BATHY_LUT, apply_lut
-
-DT = {7: np.float32, 8: np.float64}
-
-
-def quat_to_rot(q):
-    x, y, z, w = q.x, q.y, q.z, q.w
-    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
-
-
-def cloud_xyz(msg):
-    f = {fl.name: fl for fl in msg.fields}
-    n = msg.width * msg.height
-    buf = np.frombuffer(msg.data, np.uint8).reshape(n, msg.point_step)
-    cols = []
-    for name in ('x', 'y', 'z'):
-        fl = f[name]
-        dt = np.dtype(DT[fl.datatype]).newbyteorder('>' if msg.is_bigendian else '<')
-        cols.append(buf[:, fl.offset:fl.offset + dt.itemsize].copy().view(dt).ravel())
-    return np.stack(cols, 1).astype(np.float64)
-
-
-class Tile(object):
-    def __init__(self, n):
-        self.sum = np.zeros((n, n))
-        self.cnt = np.zeros((n, n))
+from maris_dataviz.common import BATHY_LUT, BathyGrid, SwathQueue, apply_lut
 
 
 class MultibeamMapper(object):
     def __init__(self):
         self.world = rospy.get_param('~world_frame', 'world')
-        self.cell = float(rospy.get_param('~cell_size', 0.25))
-        self.tile_cells = int(rospy.get_param('~tile_cells', 64))
-        self.max_range = float(rospy.get_param('~max_range', 40.0))
-        self.min_count = int(rospy.get_param('~min_count', 2))
-        self.outlier = float(rospy.get_param('~outlier_threshold', 0.8))
-        self.fill_radius = float(rospy.get_param('~fill_radius', 1.0))
         self.period = float(rospy.get_param('~publish_period', 1.0))
         self.decimate = int(rospy.get_param('~swath_decimation', 1))
         self.sun = np.array(rospy.get_param('~sun_direction', [-0.5, 0.5, 0.7]), dtype=np.float64)
         self.sun /= np.linalg.norm(self.sun)
+        self.grid = BathyGrid(cell=float(rospy.get_param('~cell_size', 0.25)),
+                              tile_cells=int(rospy.get_param('~tile_cells', 64)),
+                              outlier=float(rospy.get_param('~outlier_threshold', 0.8)),
+                              min_count=int(rospy.get_param('~min_count', 2)),
+                              fill_radius=float(rospy.get_param('~fill_radius', 1.0)))
 
         self.tf = tf2_ros.Buffer(cache_time=rospy.Duration(60))
         tf2_ros.TransformListener(self.tf)
-        self.tiles = {}
+        self.swaths = SwathQueue(self.tf, self.world, float(rospy.get_param('~max_range', 40.0)))
         self.dirty = set()
+        self.dirty_lock = threading.Lock()
         self.zrange = None
-        self.lock = threading.Lock()
         self.n_swaths = 0
         self.last_fan = rospy.Time(0)
-
-        self.pending = collections.deque(maxlen=4000)
 
         self.pub = rospy.Publisher('~bathymetry', MarkerArray, queue_size=2)
         self.pub_fan = rospy.Publisher('~swath_fan', Marker, queue_size=1)
@@ -85,69 +56,19 @@ class MultibeamMapper(object):
         self.n_swaths += 1
         if self.decimate > 1 and self.n_swaths % self.decimate:
             return
-        self.pending.append(msg)
+        self.swaths.add(msg)
 
     def process_loop(self):
-        """Process queued swaths whose timestamp is already covered by TF.
-
-        Lookups never block: swaths newer than the latest vehicle pose wait
-        in the queue for the next iteration, so the mapper keeps up with
-        high ping rates and fast playback."""
-        import time
         while not rospy.is_shutdown():
             time.sleep(0.05)
-            if not self.pending:
+            ready = self.swaths.pop_ready()
+            if not ready:
                 continue
-            frame = self.pending[0].header.frame_id
-            try:
-                latest = self.tf.lookup_transform(self.world, frame, rospy.Time(0)).header.stamp
-            except Exception:  # noqa  (TF not available yet)
-                continue
-            batch, last = [], None
-            while self.pending and self.pending[0].header.stamp <= latest:
-                msg = self.pending.popleft()
-                try:
-                    tr = self.tf.lookup_transform(self.world, msg.header.frame_id, msg.header.stamp)
-                except tf2_ros.ExtrapolationException:
-                    continue  # older than the TF buffer
-                except Exception as e:  # noqa
-                    rospy.logwarn_throttle(10, 'multibeam_mapper: TF %s', e)
-                    continue
-                p = cloud_xyz(msg)
-                r = np.linalg.norm(p, axis=1)
-                p = p[np.isfinite(r) & (r > 0.3) & (r < self.max_range)]
-                if len(p) == 0:
-                    continue
-                R = quat_to_rot(tr.transform.rotation)
-                t = tr.transform.translation
-                batch.append(p.dot(R.T) + np.array([t.x, t.y, t.z]))
-                last = (msg, p)
-            if batch:
-                with self.lock:
-                    self.accumulate(np.concatenate(batch))
-            if last is not None:
-                self.publish_fan(*last)
-
-    def accumulate(self, w):
-        n = self.tile_cells
-        ij = np.floor(w[:, :2] / self.cell).astype(np.int64)
-        tk = np.floor_divide(ij, n)
-        loc = ij - tk * n
-        keys = tk[:, 0] * 1000003 + tk[:, 1]
-        for k in np.unique(keys):
-            sel = keys == k
-            key = (int(tk[sel][0, 0]), int(tk[sel][0, 1]))
-            tile = self.tiles.get(key)
-            if tile is None:
-                tile = self.tiles[key] = Tile(n)
-            li, lj, z = loc[sel, 0], loc[sel, 1], w[sel, 2]
-            # Reject soundings far from the current cell mean.
-            have = tile.cnt[li, lj] >= 3
-            mean = np.where(have, tile.sum[li, lj] / np.maximum(tile.cnt[li, lj], 1), z)
-            ok = np.abs(z - mean) < self.outlier
-            np.add.at(tile.sum, (li[ok], lj[ok]), z[ok])
-            np.add.at(tile.cnt, (li[ok], lj[ok]), 1)
-            self.dirty.add(key)
+            dirty = self.grid.accumulate(np.concatenate([w for _, _, w in ready]))
+            with self.dirty_lock:
+                self.dirty |= dirty
+            msg, p, _ = ready[-1]
+            self.publish_fan(msg, p)
 
     def publish_fan(self, msg, p):
         now = msg.header.stamp
@@ -172,7 +93,6 @@ class MultibeamMapper(object):
 
     # ------------------------------------------------------------------
     def publish_loop(self):
-        import time
         while not rospy.is_shutdown():
             time.sleep(self.period)  # wall clock: keeps refreshing at any playback rate
             try:
@@ -181,14 +101,9 @@ class MultibeamMapper(object):
                 rospy.logwarn_throttle(5, 'multibeam_mapper: %s', e)
 
     def update_zrange(self):
-        zs = []
-        for t in self.tiles.values():
-            v = t.cnt >= self.min_count
-            if v.any():
-                zs.append(t.sum[v] / t.cnt[v])
-        if not zs:
+        z = self.grid.valid_heights()
+        if len(z) == 0:
             return False
-        z = np.concatenate(zs)
         lo, hi = np.percentile(z, 2), np.percentile(z, 98)
         if hi - lo < 0.5:
             hi = lo + 0.5
@@ -199,76 +114,43 @@ class MultibeamMapper(object):
         return False
 
     def publish_dirty(self):
-        with self.lock:
-            if self.update_zrange():
-                self.dirty = set(self.tiles.keys())  # recolour everything
+        with self.dirty_lock:
             keys, self.dirty = self.dirty, set()
-            # Hole filling and smoothing reach into neighbour tiles: refresh them too.
-            keys = {(ti + di, tj + dj) for (ti, tj) in keys for di in (-1, 0, 1) for dj in (-1, 0, 1)
-                    if (ti + di, tj + dj) in self.tiles}
-            n = self.tile_cells
-            # Each tile is processed with its 8 neighbours (3n x 3n grid), so the
-            # shared borders get identical heights and tiles join seamlessly.
-            ext = {}
-            for (ti, tj) in keys:
-                S = np.zeros((3 * n, 3 * n))
-                C = np.zeros((3 * n, 3 * n))
-                for di in (-1, 0, 1):
-                    for dj in (-1, 0, 1):
-                        t = self.tiles.get((ti + di, tj + dj))
-                        if t is not None:
-                            r, c = (di + 1) * n, (dj + 1) * n
-                            S[r:r + n, c:c + n] = t.sum
-                            C[r:r + n, c:c + n] = t.cnt
-                ext[(ti, tj)] = (S, C)
-        if not ext or self.zrange is None:
+        if self.update_zrange():
+            keys = set(self.grid.tiles.keys())  # recolour everything
+        if not keys or self.zrange is None:
             return
+        # Hole filling and smoothing reach into neighbour tiles: refresh them too.
+        keys = {(ti + di, tj + dj) for (ti, tj) in keys for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                if (ti + di, tj + dj) in self.grid.tiles}
         arr = MarkerArray()
-        for key, (S, C) in ext.items():
-            m = self.tile_marker(key, S, C)
+        for key in keys:
+            m = self.tile_marker(key)
             if m is not None:
                 arr.markers.append(m)
         if arr.markers:
             self.pub.publish(arr)
 
-    def tile_marker(self, key, S, C):
-        from scipy.ndimage import convolve
-        n = self.tile_cells
+    def tile_marker(self, key):
+        n, cell = self.grid.n, self.grid.cell
         ti, tj = key
-        valid = C >= self.min_count
-        if valid[n:2 * n + 1, n:2 * n + 1].sum() < 3:
+        # (n+1) x (n+1) vertex grid (shares its last row/column with the
+        # neighbours) plus one extra cell around for the gradients.
+        Z = self.grid.heights_box(ti * n - 1, tj * n - 1, n + 3, n + 3)
+        valid = np.isfinite(Z)
+        if valid[1:-1, 1:-1].sum() < 3:
             return None
-        Z0 = np.where(valid, S / np.maximum(C, 1), 0.0)
-        # Fill small gaps (acoustic shadows, missing detections) with the mean
-        # of the valid cells within fill_radius, only where at least half of
-        # that disc has data: interior holes are closed, swath edges are not
-        # extended.
-        if self.fill_radius > 0.0:
-            r = int(round(self.fill_radius / self.cell))
-            y, x = np.mgrid[-r:r + 1, -r:r + 1]
-            disc = ((x * x + y * y) <= r * r).astype(np.float64)
-            wv = convolve(valid.astype(np.float64), disc, mode='constant')
-            fill = ~valid & (wv >= 0.5 * disc.sum())
-            Z0 = np.where(fill, convolve(Z0, disc, mode='constant') / np.maximum(wv, 1e-6), Z0)
-            valid = valid | fill
-        # Light 3x3 smoothing of valid cells only.
-        W = valid.astype(np.float64)
-        k = np.ones((3, 3))
-        Zs = convolve(np.where(valid, Z0, 0.0), k, mode='constant') / np.maximum(convolve(W, k, mode='constant'), 1e-6)
-        Z = np.where(valid, Zs, np.nan)
+        gx, gy = np.gradient(np.where(valid, Z, np.nanmean(Z)), cell)
+        Z, valid, gx, gy = Z[1:-1, 1:-1], valid[1:-1, 1:-1], gx[1:-1, 1:-1], gy[1:-1, 1:-1]
         # Hillshade from grid normals.
-        gx, gy = np.gradient(np.where(valid, Z, np.nanmean(Z)), self.cell)
-        # Keep the (n+1) x (n+1) vertex grid of this tile.
-        sl = (slice(n, 2 * n + 1), slice(n, 2 * n + 1))
-        Z, valid, gx, gy = Z[sl], valid[sl], gx[sl], gy[sl]
         nrm = np.stack([-gx, -gy, np.ones_like(gx)], -1)
         nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
         shade = np.clip(0.35 + 0.75 * nrm.dot(self.sun), 0.0, 1.0)
         lo, hi = self.zrange
         rgb = apply_lut(BATHY_LUT, (Z - lo) / (hi - lo)) * shade[..., None]
 
-        X = (ti * n + np.arange(n + 1) + 0.5) * self.cell
-        Y = (tj * n + np.arange(n + 1) + 0.5) * self.cell
+        X = (ti * n + np.arange(n + 1) + 0.5) * cell
+        Y = (tj * n + np.arange(n + 1) + 0.5) * cell
         # Quads with all four corners valid, split in two CCW triangles.
         q = valid[:-1, :-1] & valid[1:, :-1] & valid[:-1, 1:] & valid[1:, 1:]
         ii, jj = np.nonzero(q)
